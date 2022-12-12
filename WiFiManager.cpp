@@ -200,6 +200,77 @@ int WiFiManager::getParametersCount() {
   return _paramsCount;
 }
 
+bool WiFiManager::addPageHandler(WiFiManagerPageHandler *ph) {
+  // check handler URI is valid
+  if(ph->getURI()){
+    for (size_t i = 0; i < strlen(ph->getURI()); i++) {
+      if (!(isAlphaNumeric(ph->getURI()[i])) && !(ph->getURI()[i] == '_' || ph->getURI()[i] == '/')) {
+        #ifdef WM_DEBUG_LEVEL
+        DEBUG_WM(DEBUG_ERROR,F("[ERROR] page IDs can only contain alpha numeric chars"));
+        #endif
+        return false;
+      }
+    }
+  } else {
+    #ifdef WM_DEBUG_LEVEL
+    DEBUG_WM(DEBUG_ERROR,F("[ERROR] page URIs can't be null'"));
+    #endif
+    return false;
+  }
+
+  // init pages, if it wasn't yet. malloc
+  if(_pages == NULL){
+    #ifdef WM_DEBUG_LEVEL
+    DEBUG_WM(DEBUG_DEV, F("allocating pages bytes:"), _max_pages * sizeof(WiFiManagerPageHandler *));
+    #endif
+    _pages = (WiFiManagerPageHandler **)malloc(_max_pages * sizeof(WiFiManagerPageHandler *));
+  }
+
+  for(int i = 0; i < _pagesCount; i++) {
+    if(_pages[i]->getURI() == ph->getURI()) {
+      #ifdef WM_DEBUG_LEVEL
+      DEBUG_WM(DEBUG_ERROR,F("[ERROR] page URIs already used"));
+      #endif
+      return false;
+    }
+  }
+
+  // resize the params array by increment of WIFI_MANAGER_MAX_PAGES
+  if (_pagesCount == _max_pages) {
+    _max_pages += WIFI_MANAGER_MAX_PAGES;
+    #ifdef WM_DEBUG_LEVEL
+    DEBUG_WM(DEBUG_DEV,F("Updated _max_pages:"),_max_pages);
+    DEBUG_WM(DEBUG_DEV,F("re-allocating pages bytes:"),_max_pages * sizeof(WiFiManagerPageHandler*));    
+    #endif
+    WiFiManagerPageHandler** new_pages = (WiFiManagerPageHandler**)realloc(_pages, _max_pages * sizeof(WiFiManagerPageHandler*));
+    #ifdef WM_DEBUG_LEVEL
+    // DEBUG_WM(WIFI_MANAGER_MAX_PAGES);
+    // DEBUG_WM(_pagesCount);
+    // DEBUG_WM(_max_pages);
+    #endif
+    if (new_pages != NULL) {
+      _pages = new_pages;
+    } else {
+      #ifdef WM_DEBUG_LEVEL
+      DEBUG_WM(DEBUG_ERROR,F("[ERROR] failed to realloc pages, size not increased!"));
+      #endif
+      return false;
+    }
+  }
+
+  _pages[_pagesCount] = ph;
+  _pagesCount++;
+  
+  #ifdef WM_DEBUG_LEVEL
+  DEBUG_WM(DEBUG_VERBOSE, F((String("Added Page Handler: ") + ph->getURI()).c_str()));
+  #endif
+  return true;
+}
+
+WiFiManagerPageHandler **WiFiManager::getPageHandlers() { return _pages; }
+
+int WiFiManager::getPageHandlersCount() { return _pagesCount; }
+
 /**
  * --------------------------------------------------------------------------------
  *  WiFiManager 
@@ -636,6 +707,13 @@ void WiFiManager::setupHTTPServer(){
     _webservercallback(); // @CALLBACK
   }
   // @todo add a new callback maybe, after webserver started, callback cannot override handlers, but can grab them first
+
+  for (int i =0; i < _pagesCount; i++) {
+    server->on(WM_G(_pages[i]->getURI()), std::bind(&WiFiManager::handlePage, this, _pages[i]));
+    #ifdef WM_DEBUG_LEVEL
+    DEBUG_WM(DEBUG_VERBOSE, F("Registred page handler: "), _pages[i]->getTitle());
+    #endif
+  }
   
   /* Setup httpd callbacks, web pages: root, wifi config pages, SO captive portal detectors and not found. */
 
@@ -1292,6 +1370,20 @@ String WiFiManager::getHTTPHead(String title){
 
 void WiFiManager::HTTPSend(String content){
   server->send(200, FPSTR(HTTP_HEAD_CT), content);
+}
+
+void WiFiManager::handlePage(WiFiManagerPageHandler *handler) {
+  #ifdef WM_DEBUG_LEVEL
+  DEBUG_WM(DEBUG_VERBOSE,F((String("<- HTTP ") + String(handler->getTitle())).c_str()));
+  #endif
+  handleRequest();
+  String page = getHTTPHead(FPSTR(handler->getTitle()));
+
+  page += handler->handle();
+  
+  page += FPSTR(HTTP_END);
+
+  HTTPSend(page);
 }
 
 /** 
@@ -3950,5 +4042,21 @@ void WiFiManager::handleUpdateDone() {
 		ESP.restart();
 	}
 }
+
+WiFiManagerPageHandler::WiFiManagerPageHandler(const char *uri, const char *title, const char *description, TPageHandlerFuncion fn) : _uri(uri), _title(title), _description(_description) {
+  _handler = fn;
+}
+
+WiFiManagerPageHandler::WiFiManagerPageHandler(const char *uri, const char *title, TPageHandlerFuncion fn) : _uri(uri), _title(title), _description("") {
+  _handler = fn;
+}
+
+const char *WiFiManagerPageHandler::getURI() const { return _uri; }
+
+const char *WiFiManagerPageHandler::getTitle() const { return _title; }
+
+const char *WiFiManagerPageHandler::getDescription() const { return _description; }
+
+String WiFiManagerPageHandler::handle() { return (*_handler)(); }
 
 #endif

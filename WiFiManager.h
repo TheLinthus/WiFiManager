@@ -182,11 +182,33 @@
 #ifndef WIFI_MANAGER_MAX_PARAMS
     #define WIFI_MANAGER_MAX_PARAMS 5 // params will autoincrement and realloc by this amount when max is reached
 #endif
+#ifndef WIFI_MANAGER_MAX_PAGES
+    #define WIFI_MANAGER_MAX_PAGES 5 // pages will autoincrement and realloc by this amount when max is reached
+#endif
 
 #define WFM_LABEL_BEFORE 1
 #define WFM_LABEL_AFTER 2
 #define WFM_NO_LABEL 0
 #define WFM_LABEL_DEFAULT 1
+
+typedef String(*TPageHandlerFuncion)(void);
+
+class WiFiManagerPageHandler {
+  public:
+    WiFiManagerPageHandler(const char *uri, const char *title, const char *description, TPageHandlerFuncion fn);
+    WiFiManagerPageHandler(const char *uri, const char *title, TPageHandlerFuncion fn);
+
+    const char *getURI() const;
+    const char *getTitle() const;
+    const char *getDescription() const;
+    String handle();
+
+  private:
+    const char *_uri;
+    const char *_title;
+    const char *_description;
+    TPageHandlerFuncion _handler;
+};
 
 class WiFiManagerParameter {
   public:
@@ -281,6 +303,15 @@ class WiFiManager
 
     // returns the Parameters Count
     int           getParametersCount();
+
+    //adds a custom Page Handler, returns false on failure
+    bool          addPageHandler(WiFiManagerPageHandler *ph);
+
+    //returns the list of Page Handlers
+    WiFiManagerPageHandler **getPageHandlers();
+
+    // returns the Page Handlers Count
+    int           getPageHandlersCount();
 
     // SET CALLBACKS
 
@@ -640,6 +671,7 @@ class WiFiManager
 
     // webserver handlers
     void          HTTPSend(String content);
+    void          handlePage(WiFiManagerPageHandler *handler);
     void          handleRoot();
     void          handleWifi(boolean scan);
     void          handleWifiSave();
@@ -750,6 +782,11 @@ class WiFiManager
     int         _paramsCount          = 0;
     int         _max_params;
     WiFiManagerParameter** _params    = NULL;
+
+    // WiFiManagerPageHandler
+    int         _pagesCount            = 0;
+    int         _max_pages;
+    WiFiManagerPageHandler** _pages   = NULL;
 
     // debugging
     typedef enum {
